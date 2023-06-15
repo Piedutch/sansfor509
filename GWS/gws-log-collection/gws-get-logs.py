@@ -15,7 +15,12 @@ class Google(object):
     """
 
     # These applications will be collected by default
-    DEFAULT_APPLICATIONS = ['login', 'drive', 'admin', 'user_accounts', 'chat', 'calendar', 'token']
+    # Applications with over 1000 entries: token, meet, mobile, login, drive, calender
+    DEFAULT_APPLICATIONS = ['access_transparency', 'admin', 'calendar', 'chat', 'drive', 'gcp', 'gplus', 'groups', 'groups_enterprise', 'jamboard', 'login', 'meet', 'mobile', 'rules', 'saml', 'token', 'user_accounts', 'context_aware_access', 'chrome', 'data_studio', 'keep']
+
+    #DEFAULT_APPLICATIONS = ['admin']
+
+    #DEFAULT_APPLICATIONS = ['login', 'drive', 'admin', 'user_accounts', 'chat', 'calendar', 'token']
 
     def __init__(self, **kwargs):
         self.SERVICE_ACCOUNT_FILE = kwargs['creds_path']
@@ -62,7 +67,8 @@ class Google(object):
         """
         Establish connection to Google Workspace.
         """
-        SCOPES = ['https://www.googleapis.com/auth/admin.reports.audit.readonly', 'https://www.googleapis.com/auth/apps.alerts']
+
+        SCOPES = ['https://www.googleapis.com/auth/admin.reports.audit.readonly']
         creds = service_account.Credentials.from_service_account_file(self.SERVICE_ACCOUNT_FILE, scopes=SCOPES)
         delegated_credentials = creds.with_subject(self.delegated_creds)
 
@@ -90,7 +96,7 @@ class Google(object):
             if self.update and most_recent_entry_date:
                 logging.debug(f"Only extracting records after {most_recent_entry_date}")
 
-            saved, found = self._get_activity_logs(
+            saved, found = self._get_activity_logs_with_pagination(
                 app, 
                 output_file=output_file, 
                 overwrite=self.overwrite, 
@@ -102,13 +108,70 @@ class Google(object):
 
         logging.info(f"TOTAL: Saved {total_saved} of {total_found} records.")
 
+    def _get_activity_logs_with_pagination(self, application_name, output_file, overwrite=False, only_after_datetime=None):
+        """ Collect activitiy logs from the specified application with pagination """
+
+        page_token = None
+        output_count = 0
+        total_activities = 0
+
+        while True:
+            try:
+                results = self.service.activities().list(
+                    userKey='all',
+                    applicationName=application_name,
+                    maxResults=1000,
+                    startTime='2022-12-01T00:00:00Z',
+                    endTime='2023-06-12T23:59:59Z',
+                    pageToken=page_token
+                ).execute()
+            except TypeError as e:
+                logging.error(f"Error collecting logs for {application_name}: {e}")
+                return False, False
+
+            activities = results.get('items', [])
+            if activities:
+                with open(output_file, 'w' if overwrite else 'a') as output:
+                    # Loop through activities in reverse order (so latest events are at the end)
+                    for entry in activities[::-1]:
+                        # TODO: See if we can speed this up to prevent looping through all activities
+
+                        # If we're only exporting new records, check the datetime of the record
+                        if only_after_datetime:
+                            entry_datetime = dateparser.parse(entry['id']['time'])
+                            if entry_datetime <= only_after_datetime:
+                                continue  # Skip this record
+
+                        # Output this record
+                        json_formatted_str = json.dumps(entry)
+                        output.write(f"{json_formatted_str}\n")
+                        output_count += 1
+
+            total_activities += len(activities)
+            page_token = results.get('nextPageToken')
+            if not page_token:
+                break
+
+        return output_count, total_activities
+
     def _get_activity_logs(self, application_name, output_file, overwrite=False, only_after_datetime=None):
         """ Collect activitiy logs from the specified application """
 
         # Call the Admin SDK Reports API
+
+        page_token = None
+
         try:
             results = self.service.activities().list(
-                userKey='all', applicationName=application_name).execute()
+                userKey='all',
+                applicationName=application_name,
+                maxResults=1000,
+                startTime='2022-12-01T00:00:00Z',
+                endTime='2023-06-12T23:59:59Z',
+                #startTime='2022-12-20T03:22:42.093Z',
+                #endTime='2022-12-20T12:04:43.720Z',
+                pageToken=page_token
+                ).execute()
         except TypeError as e:
             logging.error(f"Error collecting logs for {application_name}: {e}")
             return False, False

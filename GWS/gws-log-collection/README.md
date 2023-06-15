@@ -7,6 +7,6 @@ Service account credentials must be created to be used with this script. Once th
 1. The principal name for the service account
 1. The output folder where you would like all of the JSON files written to that will be collected via the script. 
 
-Execute the script with the following command: 
+Execute the script with the following command:
 
 ```python3 gws-get-logs.py```
